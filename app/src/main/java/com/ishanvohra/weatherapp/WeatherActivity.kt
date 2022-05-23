@@ -16,7 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Card
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -29,28 +30,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
-import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import com.ishanvohra.weatherapp.model.CurrentWeather
 import com.ishanvohra.weatherapp.model.Forecast
 import com.ishanvohra.weatherapp.ui.theme.*
 import com.ishanvohra.weatherapp.viewModel.WeatherViewModel
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-private var currentWeatherData: CurrentWeather? by mutableStateOf(null)
-private var forecastData: Forecast? by mutableStateOf(null)
-private var viewModel = WeatherViewModel()
-private var fusedlocationClient: FusedLocationProviderClient? = null
-
 class WeatherActivity : ComponentActivity() {
 
+    private var viewModel = WeatherViewModel()
+
     companion object {
-        val TAG: String = WeatherActivity::class.java.simpleName
         var PERMISSIONS = arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -59,6 +52,7 @@ class WeatherActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initViewModel()
         setContent {
             WeatherAppTheme {
                 // A surface container using the 'background' color from the theme
@@ -66,15 +60,11 @@ class WeatherActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Purple700,
                 ) {
-                    MainLayout()
+                    MainLayout(viewModel)
                 }
             }
         }
-        fusedlocationClient = LocationServices.getFusedLocationProviderClient(this)
         checkForLocationPermissions()
-        initViewModel()
-        collectWeatherData()
-        collectForecastData()
     }
 
     private fun checkForLocationPermissions() {
@@ -87,6 +77,8 @@ class WeatherActivity : ComponentActivity() {
     }
 
     private fun initFusedLocationClientListener() {
+        val fusedlocationClient = LocationServices.getFusedLocationProviderClient(this)
+
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
@@ -98,14 +90,14 @@ class WeatherActivity : ComponentActivity() {
             permReqLauncher.launch(PERMISSIONS)
             return
         }
-        fusedlocationClient?.lastLocation?.addOnSuccessListener {
+        fusedlocationClient.lastLocation.addOnSuccessListener {
             it?.let{
-                if (currentWeatherData == null) viewModel.getCurrentWeather(
+                if (viewModel.currentWeatherData.value == null) viewModel.getCurrentWeather(
                     it.latitude,
                     it.longitude,
                     getString(R.string.weather_api_key)
                 )
-                if (forecastData == null) viewModel.getForecast(
+                if (viewModel.currentWeatherData.value == null) viewModel.getForecast(
                     it.latitude,
                     it.longitude,
                     getString(R.string.weather_api_key)
@@ -128,33 +120,13 @@ class WeatherActivity : ComponentActivity() {
             }
         }
 
-    private fun collectForecastData() {
-        lifecycleScope.launch {
-            viewModel.forecastData.collect{
-                it?.let {
-                    forecastData = it
-                }
-            }
-        }
-    }
-
-    private fun collectWeatherData() {
-        lifecycleScope.launch {
-            viewModel.currentWeatherData.collect {
-                it?.let {
-                    currentWeatherData = it
-                }
-            }
-        }
-    }
-
     private fun initViewModel() {
         viewModel = ViewModelProvider(this).get(WeatherViewModel::class.java)
     }
 }
 
 @Composable
-fun MainLayout(){
+fun MainLayout(viewModel: WeatherViewModel){
     Column(
         modifier = Modifier
             .fillMaxWidth(1f)
@@ -174,7 +146,7 @@ fun MainLayout(){
                 .padding(12.dp),
             color = Color.White
         )
-        CurrentConditionsCard(currentWeatherData)
+        CurrentConditionsCard(viewModel = viewModel)
         Text(
             text = "3 hour forecast",
             fontSize = 16.sp,
@@ -184,12 +156,13 @@ fun MainLayout(){
                 .padding(12.dp),
             color = Color.White
         )
-        ForecastList()
+        ForecastList(viewModel = viewModel)
     }
 }
 
 @Composable
-fun CurrentConditionsCard(value: CurrentWeather?) {
+fun CurrentConditionsCard(viewModel: WeatherViewModel) {
+    val value = viewModel.currentWeatherData.collectAsState().value
     Card(elevation = 2.dp,
         modifier = Modifier
             .padding(12.dp)
@@ -238,7 +211,7 @@ fun CurrentConditionsCard(value: CurrentWeather?) {
                 )
                 val painter = rememberAsyncImagePainter(
                     model = ImageRequest.Builder(LocalContext.current)
-                        .data("http://openweathermap.org/img/wn/${currentWeatherData?.weather?.get(0)?.icon}@2x.png")
+                        .data("http://openweathermap.org/img/wn/${value?.weather?.get(0)?.icon}@2x.png")
                         .build()
                 )
                 Image(
@@ -260,7 +233,7 @@ fun CurrentConditionsCard(value: CurrentWeather?) {
                     contentDescription = ""
                 )
                 Text(
-                    text = currentWeatherData?.name ?: "",
+                    text = value?.name ?: "",
                     fontSize = 14.sp,
                     color = Color.White,
                 )
@@ -270,12 +243,13 @@ fun CurrentConditionsCard(value: CurrentWeather?) {
 }
 
 @Composable
-fun ForecastList(){
+fun ForecastList(viewModel: WeatherViewModel){
+    val foreCastData = viewModel.forecastData.collectAsState().value
     LazyRow(
         contentPadding = PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ){
-        forecastData?.let {
+        foreCastData?.let {
             itemsIndexed(it.list){_: Int, item: Forecast.Item ->
                 ForecastItem(item = item)
             }
@@ -338,6 +312,6 @@ fun ForecastItem(item: Forecast.Item){
 @Composable
 fun DefaultPreview() {
     WeatherAppTheme {
-        MainLayout()
+        MainLayout(WeatherViewModel())
     }
 }
