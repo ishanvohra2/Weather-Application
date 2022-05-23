@@ -7,7 +7,7 @@ Weather Buddy is a weather forecasting application built using Jetpack Compose t
 1. Clone the repository using: git clone https://github.com/ishanvohra2/Weather-Application.git
 2. Open Android Studio.
 3. Click on 'Open an existing Android Studio project'
-4. Browse to the directory where you cloned the project-super repo and click OK.
+4. Browse to the directory where you cloned the weather-application repo and click OK.
 5. Let Android Studio import the project.
 6. Build the application in your device by clicking run button.
 
