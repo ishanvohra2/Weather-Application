@@ -3,41 +3,39 @@ package com.ishanvohra.weatherapp
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Card
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModelProvider
-import coil.compose.rememberAsyncImagePainter
-import coil.request.ImageRequest
+import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.LocationServices
-import com.ishanvohra.weatherapp.model.Forecast
-import com.ishanvohra.weatherapp.ui.theme.*
+import com.ishanvohra.weatherapp.components.CurrentWeatherComponent
+import com.ishanvohra.weatherapp.components.ForecastComponent
+import com.ishanvohra.weatherapp.model.Errors
+import com.ishanvohra.weatherapp.ui.theme.DarkBlue500
+import com.ishanvohra.weatherapp.ui.theme.DarkBlue700
+import com.ishanvohra.weatherapp.ui.theme.Purple700
+import com.ishanvohra.weatherapp.ui.theme.WeatherAppTheme
 import com.ishanvohra.weatherapp.viewModel.WeatherViewModel
-import java.text.SimpleDateFormat
-import java.util.*
+import kotlinx.coroutines.launch
 
 class WeatherActivity : ComponentActivity() {
 
@@ -77,7 +75,7 @@ class WeatherActivity : ComponentActivity() {
     }
 
     private fun initFusedLocationClientListener() {
-        val fusedlocationClient = LocationServices.getFusedLocationProviderClient(this)
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         if (ActivityCompat.checkSelfPermission(
                 this,
@@ -90,14 +88,25 @@ class WeatherActivity : ComponentActivity() {
             permReqLauncher.launch(PERMISSIONS)
             return
         }
-        fusedlocationClient.lastLocation.addOnSuccessListener {
+
+        if(!isOnline()){
+            lifecycleScope.launch {
+                viewModel.updateCurrentWeatherState(WeatherViewModel.CurrentWeatherUIState.CurrentWeatherErrorState(Errors.NO_INTERNET))
+                viewModel.updateForecastState(WeatherViewModel.ForecastUIState.ForecastErrorState(Errors.NO_INTERNET))
+            }
+            return
+        }
+
+        fusedLocationClient.lastLocation.addOnSuccessListener {
             it?.let{
-                if (viewModel.currentWeatherData.value == null) viewModel.getCurrentWeather(
+                Log.d(javaClass.simpleName, "initFusedLocationClientListener: getting weather information")
+
+                viewModel.getCurrentWeather(
                     it.latitude,
                     it.longitude,
                     getString(R.string.weather_api_key)
                 )
-                if (viewModel.currentWeatherData.value == null) viewModel.getForecast(
+                viewModel.getForecast(
                     it.latitude,
                     it.longitude,
                     getString(R.string.weather_api_key)
@@ -123,6 +132,29 @@ class WeatherActivity : ComponentActivity() {
     private fun initViewModel() {
         viewModel = ViewModelProvider(this).get(WeatherViewModel::class.java)
     }
+
+    /**
+     * Check if the device is online
+     * If the device is not connected to internet, return false else return true
+     */
+    private fun isOnline(): Boolean{
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+        if (capabilities != null) {
+            when {
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
+                    return true
+                }
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
+                    return true
+                }
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> {
+                    return true
+                }
+            }
+        }
+        return false
+    }
 }
 
 @Composable
@@ -139,7 +171,7 @@ fun MainLayout(viewModel: WeatherViewModel){
     ) {
         Text(
             text = "Weather Forecast",
-            fontSize = 16.sp,
+            fontSize = 20.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth(1f)
@@ -161,150 +193,29 @@ fun MainLayout(viewModel: WeatherViewModel){
 }
 
 @Composable
+fun ForecastList(viewModel: WeatherViewModel) {
+    when(val state = viewModel.forecastState.collectAsState().value){
+        is WeatherViewModel.ForecastUIState.ForecastLoadedState -> ForecastComponent().ForecastListSuccess(
+            foreCastData = state.forecast
+        )
+        is WeatherViewModel.ForecastUIState.ForecastLoadingState -> ForecastComponent().ForecastLoading()
+        is WeatherViewModel.ForecastUIState.ForecastErrorState -> ForecastComponent().ForecastError(
+            error = state.error
+        )
+    }
+
+}
+
+@Composable
 fun CurrentConditionsCard(viewModel: WeatherViewModel) {
-    val value = viewModel.currentWeatherData.collectAsState().value
-    Card(elevation = 2.dp,
-        modifier = Modifier
-            .padding(12.dp)
-            .fillMaxWidth(1f),
-        shape = RoundedCornerShape(24.dp),
-        backgroundColor = CardBackgroundGrey
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth(1f)
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Today",
-                    fontSize = 20.sp,
-                    modifier = Modifier.weight(1f),
-                    color = Color.White,
-                )
-                Text(
-                    text = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date()),
-                    fontSize = 14.sp,
-                    color = Color.White,
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth(1f)
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ){
-                Text(
-                    text = "${value?.main?.temp?.toInt()}",
-                    fontSize = 60.sp,
-                    color = Color.White,
-                )
-                Text(
-                    text = "\u2103",
-                    fontSize = 30.sp,
-                    modifier = Modifier
-                        .padding(2.dp, 0.dp, 0.dp, 20.dp),
-                    color = Color.Yellow,
-                )
-                val painter = rememberAsyncImagePainter(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data("http://openweathermap.org/img/wn/${value?.weather?.get(0)?.icon}@2x.png")
-                        .build()
-                )
-                Image(
-                    painter = painter,
-                    contentDescription = "",
-                    modifier = Modifier
-                        .size(128.dp)
-                        .weight(1f)
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth(1f)
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.ic_map_marker_outline),
-                    contentDescription = ""
-                )
-                Text(
-                    text = value?.name ?: "",
-                    fontSize = 14.sp,
-                    color = Color.White,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun ForecastList(viewModel: WeatherViewModel){
-    val foreCastData = viewModel.forecastData.collectAsState().value
-    LazyRow(
-        contentPadding = PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ){
-        foreCastData?.let {
-            itemsIndexed(it.list){_: Int, item: Forecast.Item ->
-                ForecastItem(item = item)
-            }
-        }
-    }
-}
-
-@Composable
-fun ForecastItem(item: Forecast.Item){
-    Card(elevation = 2.dp,
-        shape = RoundedCornerShape(24.dp),
-        backgroundColor = CardBackgroundGrey
-    ){
-        Column(
-            modifier = Modifier.padding(12.dp)
-        ) {
-            val painter = rememberAsyncImagePainter(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data("http://openweathermap.org/img/wn/${item.weather[0].icon}@2x.png")
-                    .build()
-            )
-            Image(
-                painter = painter,
-                contentDescription = "",
-                modifier = Modifier
-                    .size(84.dp)
-                    .padding(6.dp)
-            )
-            val date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).parse(item.dt_txt)
-            Text(
-                text = "${SimpleDateFormat("dd MMM", Locale.getDefault()).format(date!!)}," +
-                        " ${SimpleDateFormat("HH:mm", Locale.getDefault()).format(date)}",
-                fontSize = 12.sp,
-                color = Color.White,
-                textAlign = TextAlign.Start
-            )
-            Row(
-                modifier = Modifier
-                    .padding(0.dp, 0.dp, 0.dp, 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ){
-                Text(
-                    text = "${item.main.temp.toInt()}",
-                    fontSize = 24.sp,
-                    color = Color.White,
-                )
-                Text(
-                    text = "\u2103",
-                    fontSize = 10.sp,
-                    modifier = Modifier
-                        .padding(2.dp, 0.dp, 0.dp, 10.dp),
-                    color = Color.Yellow,
-                )
-            }
-        }
+    when(val state = viewModel.currentWeatherUIState.collectAsState().value){
+        is WeatherViewModel.CurrentWeatherUIState.CurrentWeatherLoadedState -> CurrentWeatherComponent().CurrentConditionsCardSuccess(
+            value = state.currentWeather
+        )
+        is WeatherViewModel.CurrentWeatherUIState.CurrentWeatherLoadingState -> CurrentWeatherComponent().CurrentConditionsLoading()
+        is WeatherViewModel.CurrentWeatherUIState.CurrentWeatherErrorState -> CurrentWeatherComponent().CurrentConditionsCardError(
+            error = state.error
+        )
     }
 }
 

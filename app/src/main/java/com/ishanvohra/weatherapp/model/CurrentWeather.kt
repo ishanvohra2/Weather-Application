@@ -54,3 +54,8 @@ data class Wind(
     val deg: Int,
     val speed: Double
 )
+
+enum class Errors(val message: String){
+    NO_INTERNET("Connect to internet to get accurate weather information"),
+    API_ERROR("Something went wrong. Please try again later :(")
+}
